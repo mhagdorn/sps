@@ -23,6 +23,7 @@ Requires: python3-pandas
 
 %if %{with nvml}
 BuildRequires: cuda-nvml-devel-%{cuda_version}
+BuildRequires: cuda-nvcc-%{cuda_version}
 %endif
 
 %description
