@@ -34,10 +34,8 @@ The Slurm (or Simple) Profiling Service sps is a lightweight job profiler which 
 %setup -q
 
 %build
-%if %{with nvml}
-export CUDACXX=/usr/local/cuda-$(echo %{cuda_version} | tr - .)/bin/nvcc
-%endif
-%cmake
+%cmake \
+    %{?_with_nvml:-DCMAKE_CUDA_COMPILER=/usr/local/cuda-$(echo %{cuda_version} | tr - .)/bin/nvcc}
 %cmake_build
 
 %install
