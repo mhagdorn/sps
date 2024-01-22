@@ -6,13 +6,22 @@
 
 %bcond_with nvml
 
-Name: sps
+%global pkgname sps
+%if %{with nvml}
+%global extra_name _cuda
+%else
+%global extra_name %{nil}
+%endif
+
+Name: %{pkgname}%{extra_name}
 Version: 4.0
 Release: 1%{?dist}
 Summary: The Slurm Profiling Service
 
 License: Copyright University of Oxford
-Source0: %{name}_%{version}.tar.gz
+Source0: %{pkgname}_%{version}.tar.gz
+
+Provides: %{pkgname} = %{version}-%{release}
 
 BuildRequires: make
 BuildRequires: cmake
@@ -32,7 +41,7 @@ BuildRequires: cuda-cudart-devel-%{cuda_version}
 The Slurm (or Simple) Profiling Service sps is a lightweight job profiler which bridges the gap between numerical job stats and full-blown application profiling.
 
 %prep
-%setup -q
+%setup -q -n %{pkgname}-%{version}
 
 %build
 %cmake \
