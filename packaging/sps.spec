@@ -45,9 +45,10 @@ The Slurm (or Simple) Profiling Service sps is a lightweight job profiler which 
 rm -rf $RPM_BUILD_ROOT
 
 %files
-/usr/bin/ckill
-/usr/bin/sps
-/usr/bin/sps-pyplot
-/usr/bin/sps-stop
+%{_bindir}/ckill
+%{_bindir}/sps
+%{_bindir}/sps-pyplot
+%{_bindir}/sps-stop
+%{_libdir}/slurm/launch_sps.so
 
 %changelog
