@@ -25,6 +25,7 @@ Requires: python3-pandas
 BuildRequires: cuda-nvml-devel-%{cuda_version}
 BuildRequires: cuda-nvcc-%{cuda_version}
 BuildRequires: cuda-cudart-devel-%{cuda_version}
+%undefine _hardened_build
 %endif
 
 %description
