@@ -30,8 +30,6 @@ BuildRequires: cuda-cudart-devel-%{cuda_version}
 %description
 The Slurm (or Simple) Profiling Service sps is a lightweight job profiler which bridges the gap between numerical job stats and full-blown application profiling.
 
-%global debug_package %{nil}
-
 %prep
 %setup -q
 
