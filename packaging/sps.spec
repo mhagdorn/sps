@@ -50,7 +50,7 @@ BuildRequires: rocm-smi-lib
 The Slurm (or Simple) Profiling Service sps is a lightweight job profiler which bridges the gap between numerical job stats and full-blown application profiling.
 
 %prep
-%setup -q -n %{pkgname}-%{version}
+%setup -q -n %{pkgname}_%{version}
 
 %build
 %cmake \
