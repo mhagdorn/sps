@@ -33,6 +33,7 @@ BuildRequires: cmake
 BuildRequires: gcc
 BuildRequires: gcc-c++
 BuildRequires: slurm-devel
+BuildRequires: boost-devel
 Requires: python3-pandas
 
 %if %{with nvml}
