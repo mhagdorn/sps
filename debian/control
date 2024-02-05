@@ -1,0 +1,20 @@
+Source: sps
+Section: unknown
+Priority: optional
+Maintainer: Magnus Hagdorn <magnus.hagdorn@charite.de>
+Build-Depends: debhelper-compat (= 13), libslurm-dev, cmake,
+               libboost-program-options-dev
+Standards-Version: 4.6.0
+Homepage: https://github.com/mhagdorn/sps
+Vcs-Browser: https://github.com/mhagdorn/sps
+Vcs-Git: https://github.com/mhagdorn/sps.git
+Rules-Requires-Root: no
+
+Package: sps
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, python3-pandas
+Description: The Slurm Profiling Service
+ The Slurm (or Simple) Profiling Service sps is a lightweight job profiler
+ which bridges the gap between numerical job stats and full-blown application
+ profiling.
+
