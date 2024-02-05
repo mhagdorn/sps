@@ -14,12 +14,15 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <boost/program_options.hpp>
 #ifdef HAVE_NVML
 #include "nvidia_gpu.h"
 #endif
 
 
 using namespace std;
+
+namespace po = boost::program_options;
 
 struct Metric
 {
@@ -33,9 +36,7 @@ struct Jobstats
     unsigned int Rate;
     bool Rewrite;
     Metric Cpu, Mem, Read, Write;
-#ifdef HAVE_NVML
     vector<Metric> GPU_load, GPU_mem, GPU_power;
-#endif
     string Cgroup;
 };
 
@@ -53,39 +54,86 @@ void append_tab(Metric&, unsigned long long int&, unsigned int&);
 int main(int argc, char *argv[])
 {
     struct Jobstats Job;
-    // INITIALISE LOGGING
     string id = "-";
-    Job.Cpu.Req = "1";
-    string outputdir = "sps-local";
-    if (argc == 5) // This is Slurm, override defaults
-    {   // N.B Spank plugin can't use environment variables.
-        id = string(argv[1]);         // JOBID
-        Job.Cpu.Req = string(argv[2]);       // REQUESTED_CPUS
-        string arrayjob = string(argv[3]);   // ARRAY_ID
-        string arraytask = string(argv[4]);  // ARRAY_TASK
-        if (arrayjob != "0")          // Is 0 when not array job
-            id = arrayjob + "_" + arraytask;
-        outputdir = "sps-" + id;
+    string outputdir;
+    string outfile;
+    
+    bool foreground = false;
+    int jobid = -1;
+    int ncpus = -1;
+    int arrayid = -1;
+    int arraytask = -1;
+    string prefix = "";
+    try {
+      
+      // command line options
+      po::options_description desc("Slurm Profiling Service (sps) Options");
+      desc.add_options()
+	("help,h", "produce help message")
+	("foreground,f", po::bool_switch(&foreground), "run in foreground")
+	("job,j", po::value<int>(&jobid), "the job ID")
+	("ncpus,c", po::value<int>(&ncpus), "the number of requested CPUs")
+	("array-id,a", po::value<int>(&arrayid), "the array ID")
+	("array-task,t", po::value<int>(&arraytask), "the array task")
+	("prefix,p", po::value(&prefix), "prefix for output")
+	;
+      po::variables_map vm;
+      po::store(po::parse_command_line(argc, argv, desc), vm);
+      po::notify(vm);    
+
+      if (vm.count("help")) {
+	cout << desc << "\n";
+	return 1;
+      }
     }
-    else {
-      // check the environment for slurm variables
+    catch(exception& e) {
+        cerr << e.what() << "\n";
+    }
+
+    if (jobid < 0) {
       const char *env_slurm_job_id = getenv("SLURM_JOB_ID");
-      const char *env_slurm_array_job_id = getenv("SLURM_ARRAY_JOB_ID");
-      const char *env_slurm_array_task_id = getenv("SLURM_ARRAY_TASK_ID");
+      if (env_slurm_job_id)
+	jobid = stoi(env_slurm_job_id);
+    }
+    if (ncpus < 0) {
       const char *env_slurm_num_cpus = getenv("SLURM_CPUS_ON_NODE");
       if (env_slurm_num_cpus)
-	Job.Cpu.Req = string(env_slurm_num_cpus);  // REQUESTED_CPUS
-      if (env_slurm_job_id)
-	id = string(env_slurm_job_id); // JOBID
-      if (env_slurm_array_job_id) // ARRAYID
-	id = string(env_slurm_array_job_id) + "_" + string(env_slurm_array_task_id); // ARRAY_TASK
-      if (id != "-")
-	outputdir = "sps-" + id;
+	ncpus = stoi(env_slurm_num_cpus);
     }
+    if (arrayid < 0) {
+      const char *env_slurm_array_job_id = getenv("SLURM_ARRAY_JOB_ID");
+      if (env_slurm_array_job_id)
+	arrayid = stoi(env_slurm_array_job_id);
+    }
+    if (arraytask < 0) {
+      const char *env_slurm_array_task_id = getenv("SLURM_ARRAY_TASK_ID");
+      if (env_slurm_array_task_id)
+	arraytask = stoi(env_slurm_array_task_id);
+    }
+
+    if (ncpus < 0)
+      Job.Cpu.Req = "1";
+    else
+      Job.Cpu.Req = to_string(ncpus);
+
+    if (arrayid > 0 && arraytask > 0)
+      id = to_string(arrayid) + "_" + to_string(arraytask);
+    else if (jobid > 0)
+      id = to_string(jobid);
+
+    if (prefix.length() > 0 && prefix.back() != '/')
+      prefix.append("/");
+
+    if (id != "-")
+      outfile = "sps-" + id;
+    else
+      outfile = "sps-local";
+    outputdir = prefix + outfile;
+
     if (filesystem::exists(outputdir))
         rotate_output(outputdir);     // Up to 9 versions
     filesystem::create_directory(outputdir);
-    string filestem = outputdir + "/" + outputdir;
+    string filestem = outputdir + "/" + outfile;
     ofstream log;
     log.open(filestem + ".log");
     if (!log.is_open())
@@ -106,16 +154,19 @@ int main(int argc, char *argv[])
     Job.Mem.File = filestem + "-mem.tsv";
     Job.Read.File = filestem + "-read.tsv";
     Job.Write.File = filestem + "-write.tsv";
+    unsigned int num_nvidia_gpus=0;
     #ifdef HAVE_NVML
-    unsigned int gpu_count;
     NVML_RT_CALL(nvmlInit());
-    NVML_RT_CALL(nvmlDeviceGetCount(&gpu_count));
-    Job.GPU_load.reserve(gpu_count);
-    Job.GPU_mem.reserve(gpu_count);
-    Job.GPU_power.reserve(gpu_count);
+    NVML_RT_CALL(nvmlDeviceGetCount(&num_nvidia_gpus));
+    #endif
 
+    Job.GPU_load.reserve(num_nvidia_gpus);
+    Job.GPU_mem.reserve(num_nvidia_gpus);
+    Job.GPU_power.reserve(num_nvidia_gpus);
+
+    #ifdef HAVE_NVML
     int i;
-    for (i = 0; i < gpu_count; i++)
+    for (i = 0; i < num_nvidia_gpus; i++)
     {
       nvmlDevice_t device;
       nvmlMemory_t device_memory;
@@ -141,16 +192,15 @@ int main(int argc, char *argv[])
     log << "SLURM_JOB_ID\t\t" << id << endl;
     log << "REQ_CPU_CORES\t\t" << Job.Cpu.Req << endl;
     log << "REQ_MEMORY_GB\t\t" << Job.Mem.Req << endl;
-    #ifdef HAVE_NVML
-    log << "found " << gpu_count << " NVIDIA GPU" << endl;
-    #endif
+    log << "found " << num_nvidia_gpus << " NVIDIA GPU" << endl;
     log << "Starting profiling...\n";
     log.flush();
     // READY TO GO
     try
     {
-      if (daemon(1,0) == -1) // Don't chdir, do send output to /dev/null
-            throw runtime_error("Failed to daemonise\n");
+      if (!foreground)
+	if (daemon(1,0) == -1) // Don't chdir, do send output to /dev/null
+	  throw runtime_error("Failed to daemonise\n");
         // MAIN LOOP
         for (Job.Tick = 1; ; Job.Tick++) // Invariant: Tick = current iteration
         {
@@ -187,7 +237,6 @@ inline void get_data(struct Jobstats &Job)
         Vec.push_back(0.0);
     for (auto & [Comm, Vec] : Job.Write.Data)
         Vec.push_back(0.0);
-    #ifdef HAVE_NVML
     for (auto & Gpu: Job.GPU_load)
       for (auto & [Comm, Vec] : Gpu.Data)
 	Vec.push_back(0.0);
@@ -197,7 +246,6 @@ inline void get_data(struct Jobstats &Job)
     for (auto & Gpu: Job.GPU_power)
       for (auto & [Comm, Vec] : Gpu.Data)
 	Vec.push_back(0.0);
-    #endif
     for (const auto & pd : filesystem::directory_iterator("/proc/"))
     {
         const auto full_path = pd.path();
@@ -317,7 +365,6 @@ inline void shrink_data(Jobstats &Job)
         shrink_vector(data);
     for (auto & [pid, data] : Job.Write.Data)
         shrink_vector(data);
-    #ifdef HAVE_NVML
     for (auto & Gpu: Job.GPU_load)
       for (auto & [pid, data] : Gpu.Data)
 	shrink_vector(data);
@@ -327,7 +374,6 @@ inline void shrink_data(Jobstats &Job)
     for (auto & Gpu: Job.GPU_power)
       for (auto & [pid, data] : Gpu.Data)
         shrink_vector(data);
-    #endif
     Job.Rate *= 2;
     Job.Rewrite = true; // History has changed. Full rewrite needed.
 }
@@ -340,14 +386,12 @@ inline void write_output(struct Jobstats &Job)
         rewrite_tab(Job.Mem, Job.Tick, Job.Rate); 
         rewrite_tab(Job.Read, Job.Tick, Job.Rate); 
         rewrite_tab(Job.Write, Job.Tick, Job.Rate);
-	#ifdef HAVE_NVML
 	for (auto & Gpu: Job.GPU_load)
 	  rewrite_tab(Gpu, Job.Tick, Job.Rate);
 	for (auto & Gpu: Job.GPU_mem)
 	  rewrite_tab(Gpu, Job.Tick, Job.Rate);
 	for (auto & Gpu: Job.GPU_power)
 	  rewrite_tab(Gpu, Job.Tick, Job.Rate);
-	#endif
         Job.Rewrite = false;
     }
     else // Just need the latest data appending
@@ -356,14 +400,12 @@ inline void write_output(struct Jobstats &Job)
         append_tab(Job.Mem, Job.Tick, Job.Rate); 
         append_tab(Job.Read, Job.Tick, Job.Rate); 
         append_tab(Job.Write, Job.Tick, Job.Rate);
-	#ifdef HAVE_NVML
 	for (auto & Gpu: Job.GPU_load)
 	  append_tab(Gpu, Job.Tick, Job.Rate);
 	for (auto & Gpu: Job.GPU_mem)
 	  append_tab(Gpu, Job.Tick, Job.Rate);
 	for (auto & Gpu: Job.GPU_power)
 	  append_tab(Gpu, Job.Tick, Job.Rate);
-	#endif
     }
 }
 
