@@ -13,7 +13,7 @@
 %endif
 
 Name: %{pkgname}%{extra_name}
-Version: 4.1
+Version: 4.2.0
 Release: 1%{?dist}
 Summary: The Slurm Profiling Service
 
@@ -34,6 +34,8 @@ BuildRequires: gcc
 BuildRequires: gcc-c++
 BuildRequires: slurm-devel
 BuildRequires: boost-devel
+BuildRequires: sphinx
+BuildRequires: python3-sphinx_rtd_theme
 Requires: python3-pandas
 
 %if %{with nvml}
@@ -68,10 +70,18 @@ rm -rf $RPM_BUILD_ROOT
 %files
 %doc README.md
 %license LICENSE
+%docdir %{_docdir}/sps
 %{_bindir}/ckill
 %{_bindir}/sps
 %{_bindir}/sps-pyplot
 %{_bindir}/sps-stop
 %{_libdir}/slurm/launch_sps.so
+%{_mandir}/man1/sps.1
+%{_mandir}/man1/ckill.1
+%{_mandir}/man1/sps-pyplot.1
+%{_mandir}/man1/sps-stop.1
 
 %changelog
+* Mon Feb 19 2024 Magnus Hagdorn <magnus.hagdorn@charite.de> 4.2.0-1
+- package documentation
+
