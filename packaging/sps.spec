@@ -34,7 +34,7 @@ BuildRequires: gcc
 BuildRequires: gcc-c++
 BuildRequires: slurm-devel
 BuildRequires: boost-devel
-BuildRequires: sphinx
+BuildRequires: python3-sphinx
 BuildRequires: python3-sphinx_rtd_theme
 Requires: python3-pandas
 
