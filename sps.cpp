@@ -14,7 +14,15 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <boost/date_time/posix_time/posix_time_types.hpp>
 #include <boost/program_options.hpp>
+#include <boost/log/trivial.hpp>
+#include <boost/log/utility/setup/console.hpp>
+#include <boost/log/utility/setup/file.hpp>
+#include <boost/log/expressions.hpp>
+#include <boost/log/utility/setup/common_attributes.hpp>
+#include <boost/log/support/date_time.hpp>
+
 #ifdef HAVE_NVML
 #include "nvidia_gpu.h"
 #endif
@@ -22,9 +30,13 @@
 #include "amd_gpu.h"
 #endif
 
-using namespace std;
-
 namespace po = boost::program_options;
+namespace logging = boost::log;
+namespace src = boost::log::sources;
+namespace keywords = boost::log::keywords;
+namespace expr = boost::log::expressions;
+
+using namespace std;
 
 struct Metric
 {
@@ -52,6 +64,34 @@ void rotate_output(string&);
 template<typename T> void shrink_vector(vector<T> &);
 void rewrite_tab(Metric&, unsigned long long int&, unsigned int&);
 void append_tab(Metric&, unsigned long long int&, unsigned int&);
+
+void init_log(string logname, bool console)
+{
+  logging::add_file_log
+    (
+     keywords::file_name = logname,
+     keywords::format =
+     (
+      expr::stream
+                << expr::format_date_time< boost::posix_time::ptime >("TimeStamp", "%Y-%m-%d %H:%M:%S")
+                << ": <" << logging::trivial::severity
+                << "> " << expr::smessage
+      ),
+     keywords::auto_flush = true);
+
+  if (console) {
+    logging::add_console_log
+      (
+       std::cout,
+       keywords::format = ">> %Message%",
+       keywords::auto_flush = true);
+  }
+
+  logging::core::get()->set_filter
+    (
+     logging::trivial::severity >= logging::trivial::info);
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -112,6 +152,11 @@ int main(int argc, char *argv[])
       if (env_slurm_array_task_id)
 	arraytask = stoi(env_slurm_array_task_id);
     }
+    if (prefix.length() == 0) {
+      const char * env_sps_prefix = getenv("SPS_PREFIX");
+      if (env_sps_prefix)
+	prefix = env_sps_prefix;
+    }
 
     if (ncpus < 0)
       Job.Cpu.Req = "1";
@@ -132,14 +177,30 @@ int main(int argc, char *argv[])
       outfile = "sps-local";
     outputdir = prefix + outfile;
 
-    if (filesystem::exists(outputdir))
+    try {
+      if (filesystem::exists(outputdir))
         rotate_output(outputdir);     // Up to 9 versions
-    filesystem::create_directory(outputdir);
+      filesystem::create_directory(outputdir);
+    }
+    catch(exception& e) {
+      cerr << e.what() << "\n";
+      return 1;
+    }
+
     string filestem = outputdir + "/" + outfile;
-    ofstream log;
-    log.open(filestem + ".log");
-    if (!log.is_open())
-        exit(1); // Can't recover, can't log.
+
+    // setup logging
+    init_log(filestem + ".log", foreground);
+    logging::add_common_attributes();
+
+    using namespace logging::trivial;
+    //src::severity_logger< severity_level > lg;
+
+    BOOST_LOG_TRIVIAL(info) << "SPS Profiling started";
+    BOOST_LOG_TRIVIAL(info) << "SPS output directory: " << outputdir;
+    BOOST_LOG_TRIVIAL(info) << "SLURM_JOB_ID: " << id;
+    BOOST_LOG_TRIVIAL(info) << "REQ_CPU_CORES: " << Job.Cpu.Req;
+
     ios_base::sync_with_stdio(false); // Don't need C compatibility, faster.
     // INITIALISE DATA
     Job.Rate = 1;
@@ -148,7 +209,8 @@ int main(int argc, char *argv[])
     if (Job.Mem.Req == "") // Empty if not in a job
         Job.Mem.Req = "0";
     else
-        Job.Mem.Req = to_string(stof(Job.Mem.Req)/1024/1024/1024); // Want GB, not B.
+      Job.Mem.Req = to_string(stof(Job.Mem.Req)/1024/1024/1024); // Want GB, not B.
+    BOOST_LOG_TRIVIAL(info) << "REQ_MEMORY_GB: " << Job.Mem.Req;
     Job.Read.Req = "0";
     Job.Write.Req = "0";
     Job.Cgroup = file_to_string("/proc/" + to_string(getpid()) + "/cgroup");
@@ -162,25 +224,30 @@ int main(int argc, char *argv[])
     NVML_RT_CALL(nvmlInit());
     NVML_RT_CALL(nvmlDeviceGetCount(&num_nvidia_gpus));
     #endif
+    BOOST_LOG_TRIVIAL(info) << "number of NVIDIA GPUs: " << num_nvidia_gpus;
 
     uint32_t num_amd_gpus=0;
     #ifdef HAVE_RSMI
     RSMI_CALL(rsmi_init(0));
     RSMI_CALL(rsmi_num_monitor_devices(&num_amd_gpus));
     #endif
+    BOOST_LOG_TRIVIAL(info) << "number of AMD GPUs: " << num_amd_gpus;
 
     Job.GPU_load.reserve(num_nvidia_gpus + num_amd_gpus);
     Job.GPU_mem.reserve(num_nvidia_gpus + num_amd_gpus);
     Job.GPU_power.reserve(num_nvidia_gpus + num_amd_gpus);
 
     #ifdef HAVE_NVML
-    for (int i = 0; i < num_nvidia_gpus; i++)
+    for (unsigned int i = 0; i < num_nvidia_gpus; i++)
     {
       nvmlDevice_t device;
       nvmlMemory_t device_memory;
       Metric gload, gmem, gpower;
+      char deviceName[NVML_DEVICE_NAME_V2_BUFFER_SIZE];
       NVML_RT_CALL(nvmlDeviceGetHandleByIndex(i, &device));
       NVML_RT_CALL(nvmlDeviceGetMemoryInfo(device, &device_memory));
+      NVML_RT_CALL(nvmlDeviceGetName(device, deviceName, NVML_DEVICE_NAME_V2_BUFFER_SIZE));
+      BOOST_LOG_TRIVIAL(info) << "found NVIDIA GPU: " << deviceName;
       gload.File = filestem + "-gpu_load-" + to_string(i) + ".tsv";
       gload.Req = "0";
       gmem.File = filestem + "-gpu_mem-" + to_string(i) + ".tsv";
@@ -194,13 +261,17 @@ int main(int argc, char *argv[])
     }
     #endif
     #ifdef HAVE_RSMI
-    for (int i = 0; i < num_amd_gpus; i++)
+    for (uint32_t i = 0; i < num_amd_gpus; i++)
     {
       uint16_t device;
       uint64_t device_memory;
       Metric gload, gmem, gpower;
+      const size_t deviceName_len = 60;
+      char deviceName[deviceName_len];
       RSMI_CALL( rsmi_dev_id_get(i, &device) );
       RSMI_CALL( rsmi_dev_memory_total_get(i, RSMI_MEM_TYPE_VIS_VRAM, &device_memory) );
+      RSMI_CALL( rsmi_dev_name_get(i, deviceName, deviceName_len) );
+      BOOST_LOG_TRIVIAL(info) << "found AMD GPU: " << deviceName;
       gload.File = filestem + "-gpu_load-" + to_string(num_nvidia_gpus + i) + ".tsv";
       gload.Req = "0";
       gmem.File = filestem + "-gpu_mem-" + to_string(num_nvidia_gpus + i) + ".tsv";
@@ -214,24 +285,20 @@ int main(int argc, char *argv[])
     }
     #endif
     // LOG STARTUP
-    log << "CBB Profiling started ";
-    time_t start = chrono::system_clock::to_time_t(chrono::system_clock::now());
-    log << string(ctime(&start));
-    log << "SLURM_JOB_ID\t\t" << id << endl;
-    log << "REQ_CPU_CORES\t\t" << Job.Cpu.Req << endl;
-    log << "REQ_MEMORY_GB\t\t" << Job.Mem.Req << endl;
-    log << "found " << num_nvidia_gpus << " NVIDIA GPU" << endl;
-    log << "found " << num_amd_gpus << " AMD GPU" << endl;
-    log << "Starting profiling...\n";
-    log.flush();
+
+
+    BOOST_LOG_TRIVIAL(info) << "Starting profiling...";
+
     // READY TO GO
     try
     {
-      if (!foreground)
+      if (!foreground) {
+	BOOST_LOG_TRIVIAL(info) << "daemonising sps";
 	if (daemon(1,0) == -1) // Don't chdir, do send output to /dev/null
-	  throw runtime_error("Failed to daemonise\n");
-        // MAIN LOOP
-        for (Job.Tick = 1; ; Job.Tick++) // Invariant: Tick = current iteration
+	  throw runtime_error("Failed to daemonise");
+      }
+      // MAIN LOOP
+      for (Job.Tick = 1; ; Job.Tick++) // Invariant: Tick = current iteration
         {
             get_data(Job);
             write_output(Job);
@@ -250,15 +317,14 @@ int main(int argc, char *argv[])
     }
     catch (const exception &e)
     {
-        log << e.what() << endl;
-        log.flush();
-	#ifdef HAVE_NVML
-	NVML_RT_CALL( nvmlShutdown( ) );
-	#endif
-	#ifdef HAVE_RSMI
-	RSMI_CALL( rsmi_shut_down() );
-	#endif
-        exit(1);
+      BOOST_LOG_TRIVIAL(error) << e.what();
+#ifdef HAVE_NVML
+      NVML_RT_CALL( nvmlShutdown( ) );
+#endif
+#ifdef HAVE_RSMI
+      RSMI_CALL( rsmi_shut_down() );
+#endif
+      exit(1);
     }
 } 
 
@@ -332,7 +398,7 @@ inline void get_data(struct Jobstats &Job)
     // get GPU data
     NVML_RT_CALL(nvmlInit());
     NVML_RT_CALL(nvmlDeviceGetCount(&num_nvidia_gpus));
-    for (int i = 0; i < num_nvidia_gpus; i++)
+    for (unsigned int i = 0; i < num_nvidia_gpus; i++)
     {
       char serial[NVML_DEVICE_SERIAL_BUFFER_SIZE];
       nvmlDevice_t device;
@@ -369,7 +435,7 @@ inline void get_data(struct Jobstats &Job)
 	info_count += 10;
 	infos = new nvmlProcessInfo_t[info_count];
 	NVML_RT_CALL(nvmlDeviceGetComputeRunningProcesses(device, &info_count, infos));
-	for (int j=0; j<info_count; j++) {
+	for (unsigned int j=0; j<info_count; j++) {
 	  string gpid_root = "/proc/" + to_string(infos[j].pid);
 	  comm = file_to_string(gpid_root + "/comm");
 	  if (!Job.GPU_mem[i].Data.count(comm)) // First time GPU process seen
@@ -388,7 +454,7 @@ inline void get_data(struct Jobstats &Job)
     uint32_t num_amd_gpus;
     RSMI_CALL(rsmi_init(0));
     RSMI_CALL(rsmi_num_monitor_devices(&num_amd_gpus));
-    for (int i = 0; i < num_amd_gpus; i++) {
+    for (uint32_t i = 0; i < num_amd_gpus; i++) {
       uint64_t power;
       uint64_t device_memory;
       uint32_t busy_percent;
@@ -415,6 +481,8 @@ inline void get_data(struct Jobstats &Job)
 
 inline void shrink_data(Jobstats &Job)
 {
+  BOOST_LOG_TRIVIAL(info) << "shrink data";
+
     if ((Job.Tick % 2) == 1) // MUST be even
         Job.Tick++;
     Job.Tick /= 2;

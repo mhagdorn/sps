@@ -1,8 +1,17 @@
 cmake_minimum_required(VERSION 3.6)
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
+
+set(PROJECT_NAME sps)
 project(
-  sps
-  VERSION 3.3
+  ${PROJECT_NAME}
   LANGUAGES C CXX)
+
+option(VERSION_UPDATE_FROM_GIT "get version from git tag" on)
+find_package(Git)
+include(GetVersionFromGitTag)
+
+option(sps-docs "build SPS documentation" ON)
 
 set(CMAKE_CXX_STANDARD 17)
 set(POSITION_INDEPENDENT_CODE ON)
@@ -11,14 +20,33 @@ include(CheckIncludeFile)
 include(CheckLanguage)
 include(GNUInstallDirs)
 
+# Documentation install directory (default to cmake project docdir)
+set(SPS_DOCDIR "${CMAKE_INSTALL_DOCDIR}")
+
+if(sps-docs)
+  add_subdirectory(docs)
+endif()
+
+
 check_language(CUDA)
 if(CMAKE_CUDA_COMPILER)
   enable_language(CUDA)
   find_package(CUDAToolkit)
 endif()
 
-find_package(Boost REQUIRED COMPONENTS program_options)
+add_definitions(-DBOOST_LOG_DYN_LINK)
+
+find_package(Boost REQUIRED COMPONENTS program_options log log_setup)
 find_package(rocm_smi)
+
+# enable warnings when debug mode
+if (MSVC)
+  # warning level 4
+  add_compile_options("$<$<CONFIG:Debug>:/W4>")
+else()
+  # additional warnings
+  add_compile_options("$<$<CONFIG:Debug>:-Wall;-Wextra;-Wpedantic>")
+endif()
 
 # Find spank header
 check_include_file(slurm/spank.h HAVE_SPANK_HEADER)
@@ -30,7 +58,7 @@ if (HAVE_SPANK_HEADER)
 endif()
 
 add_executable(sps sps.cpp)
-target_link_libraries(sps PRIVATE stdc++fs Boost::program_options)
+target_link_libraries(sps PRIVATE stdc++fs Boost::program_options Boost::log Boost::log_setup)
 
 if(CMAKE_CUDA_COMPILER)
   set(CUDA_SEPARABLE_COMPILATION ON)
