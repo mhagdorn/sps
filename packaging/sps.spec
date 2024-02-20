@@ -54,6 +54,7 @@ The Slurm (or Simple) Profiling Service sps is a lightweight job profiler which 
 
 %prep
 %setup -q -n %{pkgname}_%{version}
+echo %{version} | awk -F. '{printf("%d.%d.%d*%d.%d.%d*%d*%d*%d***",$1,$2,$3,$1,$2,$3,$1,$2,$3)}' > VERSION
 
 %build
 %cmake \
