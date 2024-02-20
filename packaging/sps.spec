@@ -16,7 +16,7 @@ Name: %{pkgname}%{extra_name}
 Version: 4.2.0
 Release: 1%{?dist}
 Summary: The Slurm Profiling Service
-
+Group:   System Environment/Base
 License: Copyright University of Oxford
 Source0: %{pkgname}_%{version}.tar.gz
 
@@ -52,6 +52,12 @@ BuildRequires: rocm-smi-lib
 %description
 The Slurm (or Simple) Profiling Service sps is a lightweight job profiler which bridges the gap between numerical job stats and full-blown application profiling.
 
+%package doc
+Summary: HTML Documentation for SPS
+Group:   System Environment/Base
+%description doc
+This package contains the HTML documentation for the Slurm Profiling Service
+
 %prep
 %setup -q -n %{pkgname}_%{version}
 echo %{version} | awk -F. '{printf("%d.%d.%d*%d.%d.%d*%d*%d*%d***",$1,$2,$3,$1,$2,$3,$1,$2,$3)}' > VERSION
@@ -69,9 +75,9 @@ echo %{version} | awk -F. '{printf("%d.%d.%d*%d.%d.%d*%d*%d*%d***",$1,$2,$3,$1,$
 rm -rf $RPM_BUILD_ROOT
 
 %files
+%defattr(-,root,root)
 %doc README.md
 %license LICENSE
-%docdir %{_docdir}/sps
 %{_bindir}/ckill
 %{_bindir}/sps
 %{_bindir}/sps-pyplot
@@ -81,6 +87,10 @@ rm -rf $RPM_BUILD_ROOT
 %{_mandir}/man1/ckill.1.gz
 %{_mandir}/man1/sps-pyplot.1.gz
 %{_mandir}/man1/sps-stop.1.gz
+
+%files doc
+%defattr(-,root,root)
+%{_docdir}/sps
 
 %changelog
 * Mon Feb 19 2024 Magnus Hagdorn <magnus.hagdorn@charite.de> 4.2.0-1
