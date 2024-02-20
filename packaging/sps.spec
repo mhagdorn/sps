@@ -77,10 +77,10 @@ rm -rf $RPM_BUILD_ROOT
 %{_bindir}/sps-pyplot
 %{_bindir}/sps-stop
 %{_libdir}/slurm/launch_sps.so
-%{_mandir}/man1/sps.1
-%{_mandir}/man1/ckill.1
-%{_mandir}/man1/sps-pyplot.1
-%{_mandir}/man1/sps-stop.1
+%{_mandir}/man1/sps.1.gz
+%{_mandir}/man1/ckill.1.gz
+%{_mandir}/man1/sps-pyplot.1.gz
+%{_mandir}/man1/sps-stop.1.gz
 
 %changelog
 * Mon Feb 19 2024 Magnus Hagdorn <magnus.hagdorn@charite.de> 4.2.0-1
